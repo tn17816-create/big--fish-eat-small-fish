@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fish Evolution - MediaPipe Hand Tracking</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- MediaPipe Hands Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            font-family: 'Kanit', sans-serif;
+            background: linear-gradient(to bottom, #0f172a, #0369a1, #0c4a6e);
+            overflow: hidden;
+            user-select: none;
+        }
+        canvas {
+            touch-action: none;
+        }
+        .glow-text {
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.8), 0 0 20px rgba(56, 189, 248, 0.4);
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col justify-center items-center relative overflow-hidden text-white">
+
+    <!-- Hidden Webcam Input Video Element -->
+    <video id="webcam" class="hidden" playsinline></video>
+
+    <!-- Main Game Canvas Container -->
+    <div id="game-container" class="relative w-full h-full flex justify-center items-center">
+        <!-- Game Canvas -->
+        <canvas id="gameCanvas" class="w-full h-full block cursor-none"></canvas>
+
+        <!-- Top HUD Overlay -->
+        <div id="hud-panel" class="absolute top-4 left-4 right-4 flex justify-between items-center pointer-events-none z-10">
+            <!-- Left Info: Level & XP -->
+            <div class="bg-slate-900/80 backdrop-blur-md px-5 py-3 rounded-2xl border border-sky-500/30 shadow-lg flex items-center space-x-4">
+                <div class="relative flex items-center justify-center">
+                    <div id="player-level-badge" class="w-12 h-12 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 font-bold text-xl flex items-center justify-center border-2 border-white shadow-md">
+                        1
+                    </div>
+                </div>
+                <div>
+                    <div class="text-xs text-sky-300 font-light tracking-wider">ระดับปลาของคุณ</div>
+                    <div class="text-lg font-bold text-white leading-none mb-1.5" id="player-title">ปลาเล็กฝึกหัด</div>
+                    <!-- XP Progress Bar -->
+                    <div class="w-36 bg-slate-700/80 h-3 rounded-full overflow-hidden border border-slate-600">
+                        <div id="xp-bar" class="bg-gradient-to-r from-emerald-400 to-cyan-400 h-full transition-all duration-200" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Middle Info: Score -->
+            <div class="bg-slate-900/80 backdrop-blur-md px-6 py-2.5 rounded-2xl border border-sky-500/30 shadow-lg text-center">
+                <div class="text-xs text-sky-300">คะแนนสะสม</div>
+                <div id="score-text" class="text-3xl font-black text-amber-400 tracking-wider">0</div>
+            </div>
+
+            <!-- Right Info: Tracking Status & Controls -->
+            <div class="pointer-events-auto flex items-center space-x-3">
+                <div id="camera-status" class="bg-slate-900/80 backdrop-blur-md px-4 py-2 rounded-xl border border-rose-500/30 text-xs flex items-center space-x-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" id="status-dot"></span>
+                    <span id="status-text" class="text-rose-300 font-medium">ไม่ได้ใช้กล้อง (ใช้เมาส์แทน)</span>
+                </div>
+                <button id="toggle-cam-btn" class="bg-sky-600 hover:bg-sky-500 text-white p-3 rounded-xl transition duration-200 shadow-lg active:scale-95" title="เปิด/ปิด กล้องตรวจจับนิ้ว">
+                    <i class="fa-solid fa-camera text-lg"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Camera Preview Pip Box -->
+        <div id="pip-box" class="absolute bottom-4 right-4 w-44 h-32 bg-slate-900/90 border-2 border-sky-400/50 rounded-xl overflow-hidden shadow-2xl hidden z-10 pointer-events-none">
+            <canvas id="pipCanvas" class="w-full h-full object-cover transform -scale-x-100"></canvas>
+            <div class="absolute bottom-1 left-2 text-[10px] bg-black/60 px-1.5 py-0.5 rounded text-sky-200">
+                Index Finger Target
+            </div>
+        </div>
+
+        <!-- Start Screen Modal -->
+        <div id="start-modal" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col justify-center items-center z-20 p-6">
+            <div class="max-w-md w-full bg-slate-900 border border-sky-500/40 rounded-3xl p-8 shadow-2xl text-center relative overflow-hidden">
+                <div class="absolute -top-10 -right-10 w-32 h-32 bg-cyan-500/20 rounded-full blur-2xl"></div>
+                <div class="absolute -bottom-10 -left-10 w-32 h-32 bg-blue-500/20 rounded-full blur-2xl"></div>
+
+                <div class="w-20 h-20 bg-gradient-to-tr from-cyan-500 to-blue-600 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-cyan-500/30 mb-4 transform rotate-6">
+                    <i class="fa-solid fa-fish-fins text-4xl text-white"></i>
+                </div>
+
+                <h1 class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-300 mb-2">
+                    FISH EVOLUTION
+                </h1>
+                <p class="text-sky-200 text-sm mb-3">เกมปลาเล็กกินปลาใหญ่ด้วย MediaPipe Hand Tracking</p>
+
+                <!-- Developer Info Badge -->
+                <div class="bg-sky-950/80 border border-cyan-400/40 rounded-xl py-2 px-4 mb-5 text-sky-200 text-xs flex items-center justify-center gap-2 shadow-inner">
+                    <i class="fa-solid fa-user-astronaut text-cyan-400 text-sm"></i>
+                    <span>ผู้พัฒนา: <strong class="text-cyan-300 text-sm font-semibold">ด.ญ. เมสสิยาห์ ไชยพันธ์ เลขที่ 14</strong></span>
+                </div>
+
+                <!-- Rules Box -->
+                <div class="bg-slate-800/60 rounded-2xl p-4 text-left text-xs space-y-3 mb-6 border border-slate-700">
+                    <div class="flex items-start space-x-3">
+                        <div class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                            <i class="fa-solid fa-hand-pointer"></i>
+                        </div>
+                        <div><strong class="text-emerald-300">วิธีควบคุม:</strong> ชู **นิ้วชี้** ส่องกล้อง เพื่อบังคับทิศทางปลาเล็ก (หรือลากด้วยเมาส์/สัมผัสหน้าจอ)</div>
+                    </div>
+                    <div class="flex items-start space-x-3">
+                        <div class="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0 mt-0.5">
+                            <i class="fa-solid fa-arrow-up-right-dots"></i>
+                        </div>
+                        <div><strong class="text-cyan-300">การเติบโต:</strong> กินปลาที่เลเวล **น้อยกว่าหรือเท่ากับ** ตัวเองเพื่อสะสม XP และเพิ่มเลเวล</div>
+                    </div>
+                    <div class="flex items-start space-x-3">
+                        <div class="w-6 h-6 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0 mt-0.5">
+                            <i class="fa-solid fa-skull"></i>
+                        </div>
+                        <div><strong class="text-rose-300">ข้อควรระวัง:</strong> หลบหลีกปลาที่มีเลเวล **สูงกว่า** ไม่เช่นนั้นคุณจะถูกกิน!</div>
+                    </div>
+                </div>
+
+                <button id="start-btn" class="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 font-bold text-lg rounded-2xl shadow-xl shadow-cyan-500/30 transition transform active:scale-95 text-white flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-play"></i>
+                    <span>เริ่มเล่นเกม</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Game Over Modal -->
+        <div id="gameover-modal" class="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col justify-center items-center z-30 p-6 hidden">
+            <div class="max-w-md w-full bg-slate-900 border border-rose-500/40 rounded-3xl p-8 shadow-2xl text-center relative">
+                <div class="w-20 h-20 bg-rose-500/20 border-2 border-rose-500 rounded-full mx-auto flex items-center justify-center mb-4 text-rose-400 text-3xl animate-bounce">
+                    <i class="fa-solid fa-fish"></i>
+                </div>
+
+                <h2 class="text-3xl font-black text-rose-400 mb-1">คุณโดนกินแล้ว!</h2>
+                <p class="text-slate-400 text-sm mb-6">คุณโดนปลาที่เลเวลสูงกว่าฮุบไปซะแล้ว</p>
+
+                <div class="bg-slate-800/80 rounded-2xl p-5 mb-6 border border-slate-700 space-y-3">
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="text-slate-400">ระดับสุดท้าย (Level)</span>
+                        <span id="final-level" class="font-bold text-cyan-400 text-lg">Lvl 1</span>
+                    </div>
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="text-slate-400">คะแนนสุทธิ (Score)</span>
+                        <span id="final-score" class="font-bold text-amber-400 text-2xl">0</span>
+                    </div>
+                </div>
+
+                <button id="restart-btn" class="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 font-bold text-lg rounded-2xl shadow-xl shadow-emerald-500/30 transition transform active:scale-95 text-white flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-rotate-right"></i>
+                    <span>เล่นใหม่อีกครั้ง</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* Web Audio API Sound Generator for Sound Effects without external assets */
+        class SoundFX {
+            constructor() {
+                this.ctx = null;
+            }
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+            playEat() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(300, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(600, this.ctx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.1);
+            }
+            playLevelUp() {
+                if (!this.ctx) return;
+                const notes = [400, 523.25, 659.25, 783.99];
+                notes.forEach((freq, idx) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.value = freq;
+                    gain.gain.setValueAtTime(0.2, this.ctx.currentTime + idx * 0.08);
+                    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + idx * 0.08 + 0.2);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(this.ctx.currentTime + idx * 0.08);
+                    osc.stop(this.ctx.currentTime + idx * 0.08 + 0.2);
+                });
+            }
+            playDeath() {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(250, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(50, this.ctx.currentTime + 0.4);
+                gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.4);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.4);
+            }
+        }
+
+        const sound = new SoundFX();
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const pipCanvas = document.getElementById('pipCanvas');
+        const pipCtx = pipCanvas.getContext('2d');
+
+        let width, height;
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            pipCanvas.width = 176;
+            pipCanvas.height = 128;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Level Profiles (Colors, Names, Base Sizes)
+        const LEVEL_CONFIG = [
+            { level: 1, name: "ลูกปลาจิ๋ว", radius: 18, color: "#f97316", glow: "#fb923c", xpReq: 100 },
+            { level: 2, name: "ปลาการ์ตูน", radius: 26, color: "#38bdf8", glow: "#7dd3fc", xpReq: 250 },
+            { level: 3, name: "ปลาเสือสุมาตรา", radius: 36, color: "#facc15", glow: "#fde047", xpReq: 500 },
+            { level: 4, name: "ปลาหมอสีมังกร", radius: 48, color: "#a855f7", glow: "#c084fc", xpReq: 900 },
+            { level: 5, name: "ฉลามสีน้ำเงิน", radius: 64, color: "#ef4444", glow: "#f87171", xpReq: 1500 },
+            { level: 6, name: "พญามัจฉาทองคำ", radius: 85, color: "#eab308", glow: "#fef08a", xpReq: 3000 }
+        ];
+
+        // Game State Variables
+        let gameState = 'START'; // START, PLAYING, GAMEOVER
+        let score = 0;
+        let player = {
+            x: width / 2,
+            y: height / 2,
+            targetX: width / 2,
+            targetY: height / 2,
+            level: 1,
+            xp: 0,
+            facingRight: true,
+            tailAngle: 0
+        };
+
+        let enemies = [];
+        let particles = [];
+        let floatingTexts = [];
+        let bubbles = [];
+
+        // Spawn timer
+        let lastEnemySpawn = 0;
+
+        // Background Seaweed data
+        const seaweeds = Array.from({ length: 14 }, () => ({
+            x: Math.random() * window.innerWidth,
+            height: 120 + Math.random() * 180,
+            width: 15 + Math.random() * 15,
+            offset: Math.random() * Math.PI * 2,
+            speed: 0.02 + Math.random() * 0.02
+        }));
+
+        let hands = null;
+        let camera = null;
+        let isCameraActive = false;
+        const videoElement = document.getElementById('webcam');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const pipBox = document.getElementById('pip-box');
+
+        function initMediaPipe() {
+            hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.6,
+                minTrackingConfidence: 0.6
+            });
+
+            hands.onResults(onHandResults);
+        }
+
+        function onHandResults(results) {
+            // Draw to PIP preview canvas
+            pipCtx.clearRect(0, 0, pipCanvas.width, pipCanvas.height);
+            if (results.image) {
+                pipCtx.drawImage(results.image, 0, 0, pipCanvas.width, pipCanvas.height);
+            }
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                // Landmark 8 is Index Finger Tip
+                const indexTip = landmarks[8];
+
+                // Render landmark indicator on PIP
+                const px = indexTip.x * pipCanvas.width;
+                const py = indexTip.y * pipCanvas.height;
+                pipCtx.beginPath();
+                pipCtx.arc(px, py, 6, 0, Math.PI * 2);
+                pipCtx.fillStyle = '#06b6d4';
+                pipCtx.fill();
+                pipCtx.strokeStyle = '#ffffff';
+                pipCtx.lineWidth = 2;
+                pipCtx.stroke();
+
+                // Convert normalized landmarks to game coordinates (Mirror X axis because webcam is mirrored)
+                player.targetX = (1 - indexTip.x) * width;
+                player.targetY = indexTip.y * height;
+            }
+        }
+
+        async function toggleCamera() {
+            if (isCameraActive) {
+                if (camera) {
+                    await camera.stop();
+                }
+                isCameraActive = false;
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse";
+                statusText.innerText = "ไม่ได้ใช้กล้อง (ใช้เมาส์แทน)";
+                pipBox.classList.add('hidden');
+            } else {
+                if (!hands) initMediaPipe();
+                try {
+                    statusText.innerText = "กำลังขอสิทธิ์เปิดกล้อง...";
+                    camera = new Camera(videoElement, {
+                        onFrame: async () => {
+                            await hands.send({ image: videoElement });
+                        },
+                        width: 640,
+                        height: 480
+                    });
+                    await camera.start();
+                    isCameraActive = true;
+                    statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse";
+                    statusText.innerText = "กำลังตรวจจับนิ้วชี้";
+                    pipBox.classList.remove('hidden');
+                } catch (err) {
+                    console.error("Camera access failed:", err);
+                    isCameraActive = false;
+                    statusDot.className = "w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse";
+                    statusText.innerText = "ไม่ได้ใช้กล้อง (ใช้เมาส์แทน)";
+                    pipBox.classList.add('hidden');
+                    alert("ไม่สามารถเข้าถึงกล้องได้ ระบบจะสลับไปใช้การสัมผัส/เมาส์แทน");
+                }
+            }
+        }
+
+        document.getElementById('toggle-cam-btn').addEventListener('click', () => {
+            sound.init();
+            toggleCamera();
+        });
+
+        // Mouse / Touch Fallback Controls
+        window.addEventListener('mousemove', (e) => {
+            if (!isCameraActive && gameState === 'PLAYING') {
+                player.targetX = e.clientX;
+                player.targetY = e.clientY;
+            }
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            if (!isCameraActive && gameState === 'PLAYING' && e.touches.length > 0) {
+                player.targetX = e.touches[0].clientX;
+                player.targetY = e.touches[0].clientY;
+            }
+        });
+
+        function spawnEnemy() {
+            const levelRand = Math.random();
+            let enemyLevel = 1;
+
+            // Determine spawned enemy level relative to player level
+            if (levelRand < 0.45) {
+                enemyLevel = Math.max(1, player.level - 1);
+            } else if (levelRand < 0.75) {
+                enemyLevel = player.level;
+            } else if (levelRand < 0.95) {
+                enemyLevel = Math.min(LEVEL_CONFIG.length, player.level + 1);
+            } else {
+                enemyLevel = Math.min(LEVEL_CONFIG.length, player.level + 2);
+            }
+
+            const config = LEVEL_CONFIG[enemyLevel - 1];
+            const fromRight = Math.random() < 0.5;
+            const x = fromRight ? width + config.radius * 2 : -config.radius * 2;
+            const y = Math.random() * (height - 120) + 60;
+            const speed = (1.8 + Math.random() * 1.5) * (fromRight ? -1 : 1);
+
+            enemies.push({
+                x, y,
+                speed,
+                level: enemyLevel,
+                radius: config.radius,
+                color: config.color,
+                glow: config.glow,
+                facingRight: !fromRight,
+                tailAngle: Math.random() * Math.PI
+            });
+        }
+
+        function createBubbles() {
+            if (Math.random() < 0.15) {
+                bubbles.push({
+                    x: Math.random() * width,
+                    y: height + 10,
+                    radius: 2 + Math.random() * 6,
+                    speed: 1 + Math.random() * 2,
+                    wobble: Math.random() * Math.PI * 2
+                });
+            }
+        }
+
+        function addEatParticles(x, y, color) {
+            for (let i = 0; i < 15; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const spd = 2 + Math.random() * 4;
+                particles.push({
+                    x, y,
+                    vx: Math.cos(angle) * spd,
+                    vy: Math.sin(angle) * spd,
+                    radius: 3 + Math.random() * 4,
+                    color: color,
+                    alpha: 1
+                });
+            }
+        }
+
+        function addFloatingText(x, y, text, color) {
+            floatingTexts.push({
+                x, y,
+                text,
+                color,
+                alpha: 1,
+                vy: -1.5
+            });
+        }
+
+        function drawFish(x, y, radius, color, glow, facingRight, tailAngle, levelNum, isPlayer = false) {
+            ctx.save();
+            ctx.translate(x, y);
+
+            if (!facingRight) {
+                ctx.scale(-1, 1);
+            }
+
+            // Glow Aura for high level / player
+            ctx.shadowColor = glow;
+            ctx.shadowBlur = isPlayer ? 20 : 10;
+
+            // Tail Wobble Animation
+            const tailWiggle = Math.sin(tailAngle) * 0.25;
+
+            // Draw Tail
+            ctx.beginPath();
+            ctx.moveTo(-radius * 0.7, 0);
+            ctx.lineTo(-radius * 1.6, -radius * 0.7 + tailWiggle * 10);
+            ctx.lineTo(-radius * 1.4, 0);
+            ctx.lineTo(-radius * 1.6, radius * 0.7 + tailWiggle * 10);
+            ctx.closePath();
+            ctx.fillStyle = color;
+            ctx.fill();
+
+            // Main Fish Body (Oval/Teardrop shape)
+            ctx.beginPath();
+            ctx.ellipse(0, 0, radius * 1.1, radius * 0.75, 0, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+
+            // Body Highlight / Stripes pattern
+            ctx.beginPath();
+            ctx.ellipse(-radius * 0.2, -radius * 0.2, radius * 0.6, radius * 0.3, -0.2, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+            ctx.fill();
+
+            // Fins
+            ctx.beginPath();
+            ctx.moveTo(0, radius * 0.2);
+            ctx.quadraticCurveTo(-radius * 0.3, radius * 0.8, -radius * 0.6, radius * 0.4);
+            ctx.fillStyle = glow;
+            ctx.fill();
+
+            // Eye
+            const eyeX = radius * 0.55;
+            const eyeY = -radius * 0.2;
+            ctx.beginPath();
+            ctx.arc(eyeX, eyeY, Math.max(3, radius * 0.22), 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(eyeX + (radius * 0.05), eyeY, Math.max(1.5, radius * 0.1), 0, Math.PI * 2);
+            ctx.fillStyle = '#0f172a';
+            ctx.fill();
+
+            // Level Badge Tag above fish
+            ctx.restore(); // Clear scale transformation for text
+
+            ctx.save();
+            ctx.translate(x, y - radius - 12);
+            ctx.fillStyle = isPlayer ? 'rgba(6, 182, 212, 0.9)' : 'rgba(15, 23, 42, 0.8)';
+            ctx.strokeStyle = glow;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.roundRect(-16, -10, 32, 20, 10);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.font = 'bold 11px Kanit, sans-serif';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`Lvl ${levelNum}`, 0, 1);
+            ctx.restore();
+        }
+
+        function drawSeaweed() {
+            seaweeds.forEach(s => {
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(s.x, height);
+                const wave = Math.sin(Date.now() * s.speed + s.offset) * 25;
+                ctx.quadraticCurveTo(s.x + wave, height - s.height / 2, s.x + wave / 2, height - s.height);
+                ctx.lineWidth = s.width;
+                ctx.strokeStyle = 'rgba(16, 185, 129, 0.25)';
+                ctx.lineCap = 'round';
+                ctx.stroke();
+                ctx.restore();
+            });
+        }
+
+        function update() {
+            if (gameState !== 'PLAYING') return;
+
+            // Player position lerp for smooth motion
+            const dx = player.targetX - player.x;
+            const dy = player.targetY - player.y;
+
+            if (Math.abs(dx) > 1) {
+                player.facingRight = dx > 0;
+            }
+
+            player.x += dx * 0.12;
+            player.y += dy * 0.12;
+            player.tailAngle += 0.2;
+
+            const pConfig = LEVEL_CONFIG[player.level - 1];
+
+            // Spawn Enemies
+            if (Date.now() - lastEnemySpawn > 1200) {
+                spawnEnemy();
+                lastEnemySpawn = Date.now();
+            }
+
+            // Update Bubbles
+            createBubbles();
+            for (let i = bubbles.length - 1; i >= 0; i--) {
+                const b = bubbles[i];
+                b.y -= b.speed;
+                b.wobble += 0.05;
+                b.x += Math.sin(b.wobble) * 0.5;
+                if (b.y < -10) bubbles.splice(i, 1);
+            }
+
+            // Update Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.alpha -= 0.03;
+                if (p.alpha <= 0) particles.splice(i, 1);
+            }
+
+            // Update Floating Texts
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                const ft = floatingTexts[i];
+                ft.y += ft.vy;
+                ft.alpha -= 0.02;
+                if (ft.alpha <= 0) floatingTexts.splice(i, 1);
+            }
+
+            // Update Enemies & Collision Logic
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                e.x += e.speed;
+                e.tailAngle += 0.15;
+
+                // Remove offscreen enemies
+                if ((e.speed > 0 && e.x > width + 100) || (e.speed < 0 && e.x < -100)) {
+                    enemies.splice(i, 1);
+                    continue;
+                }
+
+                // Check collision with Player
+                const dist = Math.hypot(player.x - e.x, player.y - e.y);
+                const collideDist = (pConfig.radius + e.radius) * 0.75;
+
+                if (dist < collideDist) {
+                    if (player.level >= e.level) {
+                        // Player Eats Enemy!
+                        sound.playEat();
+                        const gainXp = e.level * 35;
+                        score += e.level * 100;
+                        player.xp += gainXp;
+
+                        addEatParticles(e.x, e.y, e.color);
+                        addFloatingText(e.x, e.y, `+${gainXp} XP`, '#38bdf8');
+                        enemies.splice(i, 1);
+
+                        // Check Level Up
+                        if (player.level < LEVEL_CONFIG.length && player.xp >= pConfig.xpReq) {
+                            player.level++;
+                            player.xp = 0;
+                            sound.playLevelUp();
+                            addFloatingText(player.x, player.y - 40, "LEVEL UP!", "#facc15");
+                            updateHUD();
+                        } else {
+                            updateHUD();
+                        }
+                    } else {
+                        // Enemy Eats Player -> Game Over!
+                        sound.playDeath();
+                        addEatParticles(player.x, player.y, pConfig.color);
+                        triggerGameOver();
+                        break;
+                    }
+                }
+            }
+        }
+
+        function updateHUD() {
+            const curConfig = LEVEL_CONFIG[player.level - 1];
+            document.getElementById('player-level-badge').innerText = player.level;
+            document.getElementById('player-title').innerText = curConfig.name;
+            document.getElementById('score-text').innerText = score.toLocaleString();
+
+            const xpPct = player.level >= LEVEL_CONFIG.length ? 100 : Math.min(100, (player.xp / curConfig.xpReq) * 100);
+            document.getElementById('xp-bar').style.width = `${xpPct}%`;
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, width, height);
+
+            // Render Camera Stream as AR background if webcam is active
+            if (isCameraActive && videoElement.readyState >= 2) {
+                ctx.save();
+                ctx.translate(width, 0);
+                ctx.scale(-1, 1); // Flip horizontally for natural mirror feel
+                ctx.drawImage(videoElement, 0, 0, width, height);
+                ctx.restore();
+
+                // Semi-transparent blue tint overlay for contrast
+                ctx.fillStyle = 'rgba(10, 25, 50, 0.55)';
+                ctx.fillRect(0, 0, width, height);
+            } else {
+                // Default Undersea Gradient when camera is inactive
+                const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
+                bgGrad.addColorStop(0, '#0f172a');
+                bgGrad.addColorStop(0.5, '#0369a1');
+                bgGrad.addColorStop(1, '#0c4a6e');
+                ctx.fillStyle = bgGrad;
+                ctx.fillRect(0, 0, width, height);
+            }
+
+            // Draw Background Seaweed & Bubbles
+            drawSeaweed();
+
+            // Bubbles
+            bubbles.forEach(b => {
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.stroke();
+            });
+
+            // Draw Enemies
+            enemies.forEach(e => {
+                drawFish(e.x, e.y, e.radius, e.color, e.glow, e.facingRight, e.tailAngle, e.level);
+            });
+
+            // Draw Player
+            if (gameState === 'PLAYING') {
+                const pConfig = LEVEL_CONFIG[player.level - 1];
+                drawFish(player.x, player.y, pConfig.radius, pConfig.color, pConfig.glow, player.facingRight, player.tailAngle, player.level, true);
+            }
+
+            // Draw Particles
+            particles.forEach(p => {
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.fill();
+                ctx.restore();
+            });
+
+            // Draw Floating Texts
+            floatingTexts.forEach(ft => {
+                ctx.save();
+                ctx.globalAlpha = ft.alpha;
+                ctx.font = 'bold 18px Kanit, sans-serif';
+                ctx.fillStyle = ft.color;
+                ctx.textAlign = 'center';
+                ctx.fillText(ft.text, ft.x, ft.y);
+                ctx.restore();
+            });
+        }
+
+        function gameLoop() {
+            update();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        async function startGame() {
+            sound.init();
+            score = 0;
+            player.level = 1;
+            player.xp = 0;
+            player.x = width / 2;
+            player.y = height / 2;
+            player.targetX = width / 2;
+            player.targetY = height / 2;
+            enemies = [];
+            particles = [];
+            floatingTexts = [];
+
+            updateHUD();
+
+            document.getElementById('start-modal').classList.add('hidden');
+            document.getElementById('gameover-modal').classList.add('hidden');
+            gameState = 'PLAYING';
+
+            // เปิดกล้องอัตโนมัติเมื่อกดเริ่มเล่นเกม
+            if (!isCameraActive) {
+                await toggleCamera();
+            }
+        }
+
+        function triggerGameOver() {
+            gameState = 'GAMEOVER';
+            document.getElementById('final-level').innerText = `Lvl ${player.level} (${LEVEL_CONFIG[player.level - 1].name})`;
+            document.getElementById('final-score').innerText = score.toLocaleString();
+            document.getElementById('gameover-modal').classList.remove('hidden');
+        }
+
+        document.getElementById('start-btn').addEventListener('click', startGame);
+        document.getElementById('restart-btn').addEventListener('click', startGame);
+
+        // Start animation loop on window load
+        window.onload = function() {
+            gameLoop();
+        };
+    </script>
+</body>
+</html>
